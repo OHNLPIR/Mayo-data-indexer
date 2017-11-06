@@ -9,7 +9,9 @@ import org.apache.uima.util.Level;
 import org.apache.uima.util.Progress;
 
 import java.io.IOException;
+import java.util.Set;
 import java.util.concurrent.BlockingDeque;
+import java.util.concurrent.Future;
 import java.util.concurrent.LinkedBlockingDeque;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -64,9 +66,10 @@ public class BlockingStreamCollectionReader extends JCasCollectionReader_ImplBas
             throw new IllegalStateException("Trying to submit a message for processing to a closed queue");
         } else {
             boolean successfulSubmit = false;
+            Job j = new Job(msg, uID);
             while (!successfulSubmit) {
                 try {
-                    successfulSubmit = PROCESSING_QUEUE.offer(new Job(msg, uID), 30, TimeUnit.MINUTES);
+                    successfulSubmit = PROCESSING_QUEUE.offer(j, 1000, TimeUnit.MILLISECONDS);
                     synchronized (PROCESSING_QUEUE) {
                         PROCESSING_QUEUE.notifyAll();
                     }
