@@ -9,9 +9,7 @@ import org.apache.uima.util.Level;
 import org.apache.uima.util.Progress;
 
 import java.io.IOException;
-import java.util.Set;
 import java.util.concurrent.BlockingDeque;
-import java.util.concurrent.Future;
 import java.util.concurrent.LinkedBlockingDeque;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;

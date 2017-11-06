@@ -135,14 +135,15 @@ public class Main extends Thread {
         for (File f : new File(ROOT_DIR, "lab").listFiles(new FileExtFilter("csv"))) { // TODO
             CSVParser parser = CSVParser.parse(f, StandardCharsets.UTF_8, CSVFormat.DEFAULT.withFirstRecordAsHeader());
             List<CSVRecord> records = parser.getRecords();
-            final AtomicInteger SENTINEL = new AtomicInteger(NUM_CSV_CORES);
+            int numJobs = 0;
             for (List<CSVRecord> record : Lists.partition(records, (int) Math.ceil(records.size() / (double) NUM_CSV_CORES))) {
-                CSV_THREAD_POOL.submit(new LabIndexer(record, SENTINEL), new ThreadFactoryBuilder().setNameFormat("SemiStructuredIR-Lab-Processing-Thread-%d").build());
+                CSV_THREAD_POOL.submit(new LabIndexer(record), new ThreadFactoryBuilder().setNameFormat("SemiStructuredIR-Lab-Processing-Thread-%d").build());
+                numJobs++;
             }
-            synchronized (SENTINEL) {
-                while (SENTINEL.get() != 0) {
+            synchronized (LabIndexer.SENTINEL) {
+                while (LabIndexer.SENTINEL.get() < numJobs) {
                     try {
-                        SENTINEL.wait(1000);
+                        LabIndexer.SENTINEL.wait(1000);
                     } catch (InterruptedException e) {
                         e.printStackTrace();
                     }
@@ -156,14 +157,15 @@ public class Main extends Thread {
         for (File f : new File(ROOT_DIR, "dx").listFiles(new FileExtFilter("csv"))) { // TODO
             CSVParser parser = CSVParser.parse(f, StandardCharsets.UTF_8, CSVFormat.DEFAULT.withFirstRecordAsHeader());
             List<CSVRecord> records = parser.getRecords();
-            final AtomicInteger SENTINEL = new AtomicInteger(NUM_CSV_CORES);
+            int numJobs = 0;
             for (List<CSVRecord> record : Lists.partition(records, (int) Math.ceil(records.size() / (double) NUM_CSV_CORES))) {
-                CSV_THREAD_POOL.submit(new DiagnosisIndexer(record, SENTINEL), new ThreadFactoryBuilder().setNameFormat("SemiStructuredIR-Diagnosis-Processing-Thread-%d").build());
+                CSV_THREAD_POOL.submit(new DiagnosisIndexer(record), new ThreadFactoryBuilder().setNameFormat("SemiStructuredIR-Diagnosis-Processing-Thread-%d").build());
+                numJobs++;
             }
-            synchronized (SENTINEL) {
-                while (SENTINEL.get() != 0) {
+            synchronized (DiagnosisIndexer.SENTINEL) {
+                while (DiagnosisIndexer.SENTINEL.get() < numJobs) {
                     try {
-                        SENTINEL.wait(1000);
+                        DiagnosisIndexer.SENTINEL.wait(1000);
                     } catch (InterruptedException e) {
                         e.printStackTrace();
                     }
@@ -177,14 +179,15 @@ public class Main extends Thread {
         for (File f : new File(ROOT_DIR, "proc").listFiles(new FileExtFilter("csv"))) { // TODO
             CSVParser parser = CSVParser.parse(f, StandardCharsets.UTF_8, CSVFormat.DEFAULT.withFirstRecordAsHeader());
             List<CSVRecord> records = parser.getRecords();
-            final AtomicInteger SENTINEL = new AtomicInteger(NUM_CSV_CORES);
+            int numJobs = 0;
             for (List<CSVRecord> record : Lists.partition(records, (int) Math.ceil(records.size() / (double) NUM_CSV_CORES))) {
-                CSV_THREAD_POOL.submit(new ProcedureIndexer(record, SENTINEL), new ThreadFactoryBuilder().setNameFormat("SemiStructuredIR-Procedure-Processing-Thread-%d").build());
+                CSV_THREAD_POOL.submit(new ProcedureIndexer(record), new ThreadFactoryBuilder().setNameFormat("SemiStructuredIR-Procedure-Processing-Thread-%d").build());
+                numJobs++;
             }
-            synchronized (SENTINEL) {
-                while (SENTINEL.get() != 0) {
+            synchronized (ProcedureIndexer.SENTINEL) {
+                while (ProcedureIndexer.SENTINEL.get() < numJobs) {
                     try {
-                        SENTINEL.wait(1000);
+                        ProcedureIndexer.SENTINEL.wait(1000);
                     } catch (InterruptedException e) {
                         e.printStackTrace();
                     }
@@ -238,12 +241,11 @@ public class Main extends Thread {
 
         private UMLSLookup LOOKUP;
         final List<CSVRecord> RECORDS;
-        final AtomicInteger SENTINEL;
+        static final AtomicInteger SENTINEL = new AtomicInteger(0);
         private DateFormat DF = new SimpleDateFormat("yyyy-MM-dd");
 
-        private ProcedureIndexer(List<CSVRecord> records, AtomicInteger sentinel) {
+        private ProcedureIndexer(List<CSVRecord> records) {
             this.RECORDS = records;
-            this.SENTINEL = sentinel;
             this.LOOKUP = UMLSLookup.newLookup();
             this.DF.setTimeZone(TimeZone.getTimeZone("GMT")); // OMOP Indexer standardizes to this timezone
         }
@@ -338,7 +340,7 @@ public class Main extends Thread {
                 }
                 ElasticsearchIndexingThread.schedule(proc, "Procedure", personID, personID);
             }
-            SENTINEL.decrementAndGet();
+            SENTINEL.incrementAndGet();
             synchronized (SENTINEL) {
                 SENTINEL.notifyAll();
             }
@@ -349,12 +351,11 @@ public class Main extends Thread {
 
         private UMLSLookup LOOKUP;
         final List<CSVRecord> RECORDS;
-        final AtomicInteger SENTINEL;
+        static final AtomicInteger SENTINEL = new AtomicInteger(0);
         private DateFormat DF = new SimpleDateFormat("yyyy-MM-dd");
 
-        private DiagnosisIndexer(List<CSVRecord> records, AtomicInteger sentinel) {
+        private DiagnosisIndexer(List<CSVRecord> records) {
             this.RECORDS = records;
-            this.SENTINEL = sentinel;
             this.LOOKUP = UMLSLookup.newLookup();
             this.DF.setTimeZone(TimeZone.getTimeZone("GMT")); // OMOP Indexer standardizes to this timezone
         }
@@ -436,12 +437,11 @@ public class Main extends Thread {
 
         private UMLSLookup LOOKUP;
         final List<CSVRecord> RECORDS;
-        final AtomicInteger SENTINEL;
+        final static AtomicInteger SENTINEL = new AtomicInteger(0);
         private DateFormat DF = new SimpleDateFormat("yyyy-MM-dd");
 
-        private LabIndexer(List<CSVRecord> records, AtomicInteger sentinel) {
+        private LabIndexer(List<CSVRecord> records) {
             this.RECORDS = records;
-            this.SENTINEL = sentinel;
             this.LOOKUP = UMLSLookup.newLookup();
             this.DF.setTimeZone(TimeZone.getTimeZone("GMT")); // OMOP Indexer standardizes to this timezone
         }
@@ -517,7 +517,7 @@ public class Main extends Thread {
                 lab.put("unit", record.get(LAB_HEADERS.UNIT.getIndex()).trim());
                 ElasticsearchIndexingThread.schedule(lab, "LabTest", personID, personID);
             }
-            SENTINEL.decrementAndGet();
+            SENTINEL.incrementAndGet();
             synchronized (SENTINEL) {
                 SENTINEL.notifyAll();
             }
