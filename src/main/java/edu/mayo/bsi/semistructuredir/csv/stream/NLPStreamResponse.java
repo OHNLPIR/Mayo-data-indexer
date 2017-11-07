@@ -1,15 +1,18 @@
 package edu.mayo.bsi.semistructuredir.csv.stream;
 
+import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 
 // TODO document
 public class NLPStreamResponse<T> {
+    private final UUID jobUID;
     private T resp;
     private final AtomicInteger SENTINEL;
 
-    public NLPStreamResponse() {
+    public NLPStreamResponse(UUID jobUID) {
         this.SENTINEL = new AtomicInteger(RESPONSE_STATES.NOT_COMPLETED.getStateId());
         this.resp = null;
+        this.jobUID = jobUID;
     }
 
     public synchronized void setResp(T resp, RESPONSE_STATES state) {
@@ -59,5 +62,20 @@ public class NLPStreamResponse<T> {
         public int getStateId() {
             return stateId;
         }
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (o == null || getClass() != o.getClass()) return false;
+
+        NLPStreamResponse<?> that = (NLPStreamResponse<?>) o;
+
+        return jobUID != null ? jobUID.equals(that.jobUID) : that.jobUID == null;
+    }
+
+    @Override
+    public int hashCode() {
+        return jobUID != null ? jobUID.hashCode() : 0;
     }
 }

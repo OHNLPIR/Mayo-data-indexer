@@ -34,6 +34,7 @@ public class BlockingStreamCollectionReader extends JCasCollectionReader_ImplBas
 
     private static final BlockingDeque<Job> PROCESSING_QUEUE = new LinkedBlockingDeque<>(1000);
     private static final AtomicBoolean STREAM_OPEN = new AtomicBoolean(true);
+    private static final AtomicBoolean STREAM_READY = new AtomicBoolean(false);
     private Job CURRENT_WORK = null;
 
     @Override
@@ -46,6 +47,12 @@ public class BlockingStreamCollectionReader extends JCasCollectionReader_ImplBas
 
     @Override
     public boolean hasNext() throws IOException, CollectionException {
+        synchronized (STREAM_READY) {
+            if (!STREAM_READY.get()) {
+                STREAM_READY.set(true);
+                STREAM_READY.notifyAll();
+            }
+        }
         synchronized (PROCESSING_QUEUE) {
             while ((CURRENT_WORK = PROCESSING_QUEUE.pollFirst()) == null && STREAM_OPEN.get()) {
                 try {
@@ -63,13 +70,23 @@ public class BlockingStreamCollectionReader extends JCasCollectionReader_ImplBas
         return new Progress[0];
     }
 
-    public static NLPStreamResponse<Set<String>> submitMessage(UUID uID, String msg) {
+    public static void waitReady() {
+        synchronized (STREAM_READY) {
+            while (!STREAM_READY.get()) {
+                try {
+                    STREAM_READY.wait(1000);
+                } catch (InterruptedException ignored) {}
+            }
+        }
+    }
+
+    public static <T> NLPStreamResponse<T> submitMessage(UUID uID, String msg) {
         if (!STREAM_OPEN.get()) {
             throw new IllegalStateException("Trying to submit a message for processing to a closed queue");
         } else {
             boolean successfulSubmit = false;
-            NLPStreamResponse<Set<String>> ret = new NLPStreamResponse<>();
-            Job j = new Job(msg, uID, ret);
+            NLPStreamResponse<T> ret = new NLPStreamResponse<>(uID);
+            Job<T> j = new Job<>(msg, uID, ret);
             while (!successfulSubmit) {
                 try {
                     successfulSubmit = PROCESSING_QUEUE.offer(j, 1000, TimeUnit.MILLISECONDS);
@@ -105,12 +122,12 @@ public class BlockingStreamCollectionReader extends JCasCollectionReader_ImplBas
     }
 
 
-    private static class Job {
+    private static class Job<T> {
         String text;
         UUID id;
-        NLPStreamResponse<Set<String>> future;
+        NLPStreamResponse<T> future;
 
-        Job(String text, UUID id, NLPStreamResponse<Set<String>> future) {
+        Job(String text, UUID id, NLPStreamResponse<T> future) {
             this.text = text;
             this.id = id;
             this.future = future;

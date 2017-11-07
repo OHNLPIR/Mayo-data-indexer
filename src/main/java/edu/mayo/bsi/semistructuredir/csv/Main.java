@@ -5,10 +5,12 @@ import com.google.common.cache.CacheBuilder;
 import com.google.common.collect.Lists;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import com.googlecode.clearnlp.io.FileExtFilter;
-import edu.mayo.bsi.semistructuredir.csv.cc.SynchronizingUMLSDictionaryCasConsumer;
 import edu.mayo.bsi.semistructuredir.csv.cr.BlockingStreamCollectionReader;
 import edu.mayo.bsi.semistructuredir.csv.elasticsearch.ElasticsearchIndexingThread;
 import edu.mayo.bsi.semistructuredir.csv.pipelines.StreamingCTakesPipelineThread;
+import edu.mayo.bsi.semistructuredir.csv.processing.DiagnosisIndexer;
+import edu.mayo.bsi.semistructuredir.csv.processing.LabIndexer;
+import edu.mayo.bsi.semistructuredir.csv.processing.ProcedureIndexer;
 import edu.mayo.bsi.semistructuredir.csv.stream.NLPStreamResponse;
 import edu.mayo.bsi.umlsvts.UMLSLookup;
 import org.apache.commons.csv.CSVFormat;
@@ -21,14 +23,17 @@ import org.json.JSONObject;
 import java.io.File;
 import java.io.IOException;
 import java.lang.reflect.InvocationTargetException;
-import java.net.*;
+import java.net.MalformedURLException;
 import java.nio.charset.StandardCharsets;
 import java.sql.SQLException;
 import java.text.DateFormat;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.*;
-import java.util.concurrent.*;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -39,10 +44,10 @@ public class Main extends Thread {
 
     private static Integer NUM_CSV_CORES;
     // Initialization of items is done sync
-    private static Map<Optional<UMLSLookup.UMLSSourceVocabulary>, Cache<String, Collection<String>>> SRC_CODE_TO_CUI_CACHE = new HashMap<>();
-    private static Map<Optional<UMLSLookup.UMLSSourceVocabulary>, Cache<String, Collection<String>>> CUI_TO_SRC_CODE = new HashMap<>();
-    private static Map<Optional<UMLSLookup.UMLSSourceVocabulary>, Cache<String, Collection<String>>> SRC_CODE_TO_SRC_VOCAB = new HashMap<>();
-    private static Map<String, Long> personToDOBLookup = new HashMap<>();
+    public static Map<Optional<UMLSLookup.UMLSSourceVocabulary>, Cache<String, Set<String>>> SRC_CODE_TO_CUI_CACHE = new HashMap<>();
+    public static Map<Optional<UMLSLookup.UMLSSourceVocabulary>, Cache<String, Set<String>>> CUI_TO_SRC_CODE = new HashMap<>();
+    public static Map<Optional<UMLSLookup.UMLSSourceVocabulary>, Cache<String, Set<String>>> SRC_CODE_TO_SRC_VOCAB = new HashMap<>();
+    public static Map<String, Long> PERSON_DOB_LOOKUP = new HashMap<>();
     private static ExecutorService CSV_THREAD_POOL;
     private static final File ROOT_DIR = new File("/infodev1/phi-data/EHR/BioBank/"); // TODO remove hardcoding
 
@@ -137,18 +142,18 @@ public class Main extends Thread {
         for (File f : new File(ROOT_DIR, "lab").listFiles(new FileExtFilter("csv"))) { // TODO
             CSVParser parser = CSVParser.parse(f, StandardCharsets.UTF_8, CSVFormat.DEFAULT.withFirstRecordAsHeader());
             List<CSVRecord> records = parser.getRecords();
-            int numJobs = 0;
+            List<LabIndexer> indexers = new LinkedList<>();
             for (List<CSVRecord> record : Lists.partition(records, (int) Math.ceil(records.size() / (double) NUM_CSV_CORES))) {
-                CSV_THREAD_POOL.submit(new LabIndexer(record), new ThreadFactoryBuilder().setNameFormat("SemiStructuredIR-Lab-Processing-Thread-%d").build());
-                numJobs++;
+                LabIndexer indexer = new LabIndexer(CSV_THREAD_POOL, record);
+                CSV_THREAD_POOL.submit(indexer,
+                        new ThreadFactoryBuilder().setNameFormat("SemiStructuredIR-Lab-Processing-Thread-%d").build());
+                indexers.add(indexer);
             }
-            synchronized (LabIndexer.SENTINEL) {
-                while (LabIndexer.SENTINEL.get() < numJobs) {
-                    try {
-                        LabIndexer.SENTINEL.wait(1000);
-                    } catch (InterruptedException e) {
-                        e.printStackTrace();
-                    }
+            for (LabIndexer indexer : indexers) {
+                try {
+                    indexer.waitComplete(); // TODO do we really need to sync on a document level or can we do corpus?
+                } catch (InterruptedException e) {
+                    e.printStackTrace();
                 }
             }
         }
@@ -159,18 +164,18 @@ public class Main extends Thread {
         for (File f : new File(ROOT_DIR, "dx").listFiles(new FileExtFilter("csv"))) { // TODO
             CSVParser parser = CSVParser.parse(f, StandardCharsets.UTF_8, CSVFormat.DEFAULT.withFirstRecordAsHeader());
             List<CSVRecord> records = parser.getRecords();
-            int numJobs = 0;
+            List<DiagnosisIndexer> indexers = new LinkedList<>();
             for (List<CSVRecord> record : Lists.partition(records, (int) Math.ceil(records.size() / (double) NUM_CSV_CORES))) {
-                CSV_THREAD_POOL.submit(new DiagnosisIndexer(record), new ThreadFactoryBuilder().setNameFormat("SemiStructuredIR-Diagnosis-Processing-Thread-%d").build());
-                numJobs++;
+                DiagnosisIndexer indexer = new DiagnosisIndexer(CSV_THREAD_POOL, record);
+                CSV_THREAD_POOL.submit(indexer,
+                        new ThreadFactoryBuilder().setNameFormat("SemiStructuredIR-Diagnosis-Processing-Thread-%d").build());
+                indexers.add(indexer);
             }
-            synchronized (DiagnosisIndexer.SENTINEL) {
-                while (DiagnosisIndexer.SENTINEL.get() < numJobs) {
-                    try {
-                        DiagnosisIndexer.SENTINEL.wait(1000);
-                    } catch (InterruptedException e) {
-                        e.printStackTrace();
-                    }
+            for (DiagnosisIndexer indexer : indexers) {
+                try {
+                    indexer.waitComplete(); // TODO do we really need to sync on a document level or can we do corpus?
+                } catch (InterruptedException e) {
+                    e.printStackTrace();
                 }
             }
         }
@@ -181,18 +186,19 @@ public class Main extends Thread {
         for (File f : new File(ROOT_DIR, "proc").listFiles(new FileExtFilter("csv"))) { // TODO
             CSVParser parser = CSVParser.parse(f, StandardCharsets.UTF_8, CSVFormat.DEFAULT.withFirstRecordAsHeader());
             List<CSVRecord> records = parser.getRecords();
-            int numJobs = 0;
+            List<ProcedureIndexer> indexers = new LinkedList<>();
             for (List<CSVRecord> record : Lists.partition(records, (int) Math.ceil(records.size() / (double) NUM_CSV_CORES))) {
-                CSV_THREAD_POOL.submit(new ProcedureIndexer(record), new ThreadFactoryBuilder().setNameFormat("SemiStructuredIR-Procedure-Processing-Thread-%d").build());
-                numJobs++;
+                // Because umls db lookup is slow and a part of the caching process, we want this to also be done as part of a thread pool
+                ProcedureIndexer indexer = new ProcedureIndexer(CSV_THREAD_POOL, record);
+                CSV_THREAD_POOL.submit(indexer,
+                        new ThreadFactoryBuilder().setNameFormat("SemiStructuredIR-Procedure-Processing-Thread-%d").build());
+                indexers.add(indexer);
             }
-            synchronized (ProcedureIndexer.SENTINEL) {
-                while (ProcedureIndexer.SENTINEL.get() < numJobs) {
-                    try {
-                        ProcedureIndexer.SENTINEL.wait(1000);
-                    } catch (InterruptedException e) {
-                        e.printStackTrace();
-                    }
+            for (ProcedureIndexer indexer : indexers) {
+                try {
+                    indexer.waitComplete(); // TODO do we really need to sync on a document level or can we do corpus?
+                } catch (InterruptedException e) {
+                    e.printStackTrace();
                 }
             }
         }
@@ -221,7 +227,7 @@ public class Main extends Thread {
                 try {
                     diagDate = DF.parse(diagDateRaw);
                     diag.put("date_of_birth", diagDate.getTime());
-                    personToDOBLookup.put(personID.toLowerCase(), diagDate.getTime());
+                    PERSON_DOB_LOOKUP.put(personID.toLowerCase(), diagDate.getTime());
                 } catch (ParseException e) {
                     e.printStackTrace();
                 }
@@ -239,295 +245,7 @@ public class Main extends Thread {
         }
     }
 
-    private static class ProcedureIndexer extends Thread {
-
-        private UMLSLookup LOOKUP;
-        final List<CSVRecord> RECORDS;
-        static final AtomicInteger SENTINEL = new AtomicInteger(0);
-        private DateFormat DF = new SimpleDateFormat("yyyy-MM-dd");
-
-        private ProcedureIndexer(List<CSVRecord> records) {
-            this.RECORDS = records;
-            this.LOOKUP = UMLSLookup.newLookup();
-            this.DF.setTimeZone(TimeZone.getTimeZone("GMT")); // OMOP Indexer standardizes to this timezone
-        }
-
-        @Override
-        public void run() {
-            for (CSVRecord record : RECORDS) {
-                JSONObject proc = new JSONObject();
-                String personID = record.get(PROC_HEADERS.MCN.getIndex()).trim();
-                proc.put("person_id", personID);
-                String procDateRaw = record.get(PROC_HEADERS.DATE.getIndex()).trim();
-                Date procDate = null;
-                try {
-                    procDate = DF.parse(procDateRaw);
-                    proc.put("procedure_date", procDate.getTime());
-                } catch (ParseException e) {
-                    e.printStackTrace(); // TODO better error logging
-                }
-                String procCodeCPT = record.get(PROC_HEADERS.CODE.getIndex()).trim();
-                String procDescCPT = record.get(PROC_HEADERS.DESC.getIndex()).trim();
-                proc.put("procedure_raw", procDescCPT);
-                Collection<String> codes = null;
-                Cache<String, Collection<String>> cuiLookupCache = SRC_CODE_TO_CUI_CACHE.get(Optional.of(UMLSLookup.UMLSSourceVocabulary.CPT));
-                try {
-                    codes = cuiLookupCache.get(procCodeCPT, () -> {
-                        try {
-                            Collection<String> ret = LOOKUP.getUMLSCuiForSourceVocab(UMLSLookup.UMLSSourceVocabulary.CPT, procCodeCPT);
-                            if (ret.size() == 0) {
-                                return Collections.emptyList();
-                            } else {
-                                return ret;
-                            }
-                        } catch (SQLException e) {
-                            e.printStackTrace();
-                            return Collections.emptyList();
-                        }
-                    });
-                } catch (ExecutionException e) {
-                    e.printStackTrace();
-                }
-                if (codes == null || codes.size() == 0) {
-                    try {
-                        codes = runCTAKESNER(procDescCPT);
-                        if (codes != null && codes.size() > 0) {
-                            SRC_CODE_TO_CUI_CACHE.get(Optional.of(UMLSLookup.UMLSSourceVocabulary.CPT)).put(procCodeCPT, codes); // Some minor thrashing/duplicate work but should be fine for the most part TODO
-                        }
-                    } catch (MalformedURLException | ResourceInitializationException e) {
-                        e.printStackTrace();
-                    }
-                }
-                if (codes != null) {
-                    HashSet<String> cuis = new HashSet<>();
-                    cuis.addAll(codes);
-                    HashSet<String> snomed = new HashSet<>();
-                    HashSet<String> snomedText = new HashSet<>();
-                    for (String s : codes) {
-                        try {
-                            snomed.addAll(CUI_TO_SRC_CODE.get(Optional.of(UMLSLookup.UMLSSourceVocabulary.SNOMEDCT_US)).get(s, () -> {
-                                try {
-                                    return LOOKUP.getSourceCodesForVocab(UMLSLookup.UMLSSourceVocabulary.SNOMEDCT_US, s);
-                                } catch (SQLException e) {
-                                    e.printStackTrace();
-                                    return Collections.emptyList();
-                                }
-                            }));
-                        } catch (ExecutionException e) {
-                            e.printStackTrace();
-                        }
-                    }
-                    for (String s : snomed) {
-                        try {
-                            snomedText.addAll((SRC_CODE_TO_SRC_VOCAB.get(Optional.of(UMLSLookup.UMLSSourceVocabulary.SNOMEDCT_US)).get(s, () -> {
-                                try {
-                                    return LOOKUP.getSourceTermPreferredText(UMLSLookup.UMLSSourceVocabulary.SNOMEDCT_US, s);
-                                } catch (SQLException e) {
-                                    e.printStackTrace();
-                                    return new LinkedList<>();
-                                }
-                            })));
-                        } catch (ExecutionException e) {
-                            e.printStackTrace();
-                        }
-                    }
-                    proc.put("procedure_cui", StringUtils.join(cuis, " "));
-                    proc.put("procedure_SNOMEDCT_US_code", StringUtils.join(snomed, " "));
-                    proc.put("procedure_SNOMEDCT_US_text", StringUtils.join(snomedText, " "));
-                }
-                proc.put("procedure_" + record.get(PROC_HEADERS.CODE_VOCAB.getIndex()).trim().replaceAll("[- ]", "") + "_code", record.get(PROC_HEADERS.CODE.getIndex()).trim());
-                proc.put("procedure_source_coding_vocab", record.get(PROC_HEADERS.CODE_VOCAB.getIndex()).trim());
-                if (procDate != null && personToDOBLookup.containsKey(personID.toLowerCase())) {
-                    proc.put("procedure_age", procDate.getTime() - personToDOBLookup.get(personID.toLowerCase()));
-                }
-                ElasticsearchIndexingThread.schedule(proc, "Procedure", personID, personID);
-            }
-            SENTINEL.incrementAndGet();
-            synchronized (SENTINEL) {
-                SENTINEL.notifyAll();
-            }
-        }
-    }
-
-    private static class DiagnosisIndexer extends Thread {
-
-        private UMLSLookup LOOKUP;
-        final List<CSVRecord> RECORDS;
-        static final AtomicInteger SENTINEL = new AtomicInteger(0);
-        private DateFormat DF = new SimpleDateFormat("yyyy-MM-dd");
-
-        private DiagnosisIndexer(List<CSVRecord> records) {
-            this.RECORDS = records;
-            this.LOOKUP = UMLSLookup.newLookup();
-            this.DF.setTimeZone(TimeZone.getTimeZone("GMT")); // OMOP Indexer standardizes to this timezone
-        }
-
-        @Override
-        public void run() {
-            for (CSVRecord record : RECORDS) {
-                JSONObject diag = new JSONObject();
-                String personID = record.get(DIAG_HEADERS.MCN.getIndex()).trim();
-                diag.put("person_id", personID);
-                String diagDateRaw = record.get(DIAG_HEADERS.DATE.getIndex()).trim();
-                Date diagDate;
-                try {
-                    diagDate = DF.parse(diagDateRaw);
-                    diag.put("diagnosis_date", diagDate.getTime());
-                    if (personToDOBLookup.containsKey(personID.toLowerCase())) {
-                        diag.put("diagnosis_age", diagDate.getTime() - personToDOBLookup.get(personID.toLowerCase()));
-                    }
-                } catch (ParseException e) {
-                    e.printStackTrace();
-                }
-                diag.put("diagnosis_raw", record.get(DIAG_HEADERS.DESC.getIndex()).trim());
-                Collection<String> codes = null;
-                try {
-                    codes = runCTAKESNER(record.get(DIAG_HEADERS.DESC.getIndex()).trim());
-                } catch (MalformedURLException | ResourceInitializationException e) {
-                    e.printStackTrace();
-                }
-                if (codes != null) {
-                    SRC_CODE_TO_CUI_CACHE.get(Optional.<UMLSLookup.UMLSSourceVocabulary>empty()).put(record.get(DIAG_HEADERS.DESC.getIndex()).trim(), codes);
-                    HashSet<String> cuis = new HashSet<>();
-                    cuis.addAll(codes);
-                    HashSet<String> snomed = new HashSet<>();
-                    HashSet<String> snomedText = new HashSet<>();
-                    for (String s : codes) {
-                        try {
-                            snomed.addAll(CUI_TO_SRC_CODE.get(Optional.of(UMLSLookup.UMLSSourceVocabulary.SNOMEDCT_US)).get(s, () -> {
-                                try {
-                                    return LOOKUP.getSourceCodesForVocab(UMLSLookup.UMLSSourceVocabulary.SNOMEDCT_US, s);
-                                } catch (SQLException e) {
-                                    e.printStackTrace();
-                                    return Collections.emptyList();
-                                }
-                            }));
-                        } catch (ExecutionException e) {
-                            e.printStackTrace();
-                        }
-                    }
-                    for (String s : snomed) {
-                        try {
-                            snomedText.addAll((SRC_CODE_TO_SRC_VOCAB.get(Optional.of(UMLSLookup.UMLSSourceVocabulary.SNOMEDCT_US)).get(s, () -> {
-                                try {
-                                    return LOOKUP.getSourceTermPreferredText(UMLSLookup.UMLSSourceVocabulary.SNOMEDCT_US, s);
-                                } catch (SQLException e) {
-                                    e.printStackTrace();
-                                    return new LinkedList<>();
-                                }
-                            })));
-                        } catch (ExecutionException e) {
-                            e.printStackTrace();
-                        }
-                    }
-                    diag.put("diagnosis_cui", StringUtils.join(cuis, " "));
-                    diag.put("diagnosis_SNOMEDCT_US_code", StringUtils.join(snomed, " "));
-                    diag.put("diagnosis_SNOMEDCT_US_text", StringUtils.join(snomedText, " "));
-                }
-                diag.put("diagnosis_" + record.get(DIAG_HEADERS.CODE_VOCAB.getIndex()).trim().replaceAll("[- ]", "") + "_code", record.get(DIAG_HEADERS.CODE.getIndex()).trim());
-                diag.put("diagnosis_source_coding_vocab", record.get(DIAG_HEADERS.CODE_VOCAB.getIndex()).trim());
-                ElasticsearchIndexingThread.schedule(diag, "Diagnosis", personID, personID);
-            }
-            SENTINEL.decrementAndGet();
-            synchronized (SENTINEL) {
-                SENTINEL.notifyAll();
-            }
-        }
-    }
-
-    private static class LabIndexer extends Thread {
-
-        private UMLSLookup LOOKUP;
-        final List<CSVRecord> RECORDS;
-        final static AtomicInteger SENTINEL = new AtomicInteger(0);
-        private DateFormat DF = new SimpleDateFormat("yyyy-MM-dd");
-
-        private LabIndexer(List<CSVRecord> records) {
-            this.RECORDS = records;
-            this.LOOKUP = UMLSLookup.newLookup();
-            this.DF.setTimeZone(TimeZone.getTimeZone("GMT")); // OMOP Indexer standardizes to this timezone
-        }
-
-        @Override
-        public void run() {
-            for (CSVRecord record : RECORDS) {
-                JSONObject lab = new JSONObject();
-                String personID = record.get(LAB_HEADERS.MCN.getIndex()).trim();
-                lab.put("person_id", personID);
-                String labDateRaw = record.get(LAB_HEADERS.RESULT_DATE.getIndex()).trim();
-                Date labDate;
-                try {
-                    labDate = DF.parse(labDateRaw);
-                    lab.put("lab_date", labDate.getTime());
-                    if (personToDOBLookup.containsKey(personID.toLowerCase())) {
-                        lab.put("lab_age", labDate.getTime() - personToDOBLookup.get(personID.toLowerCase()));
-                    }
-                } catch (ParseException e) {
-                    e.printStackTrace();
-                }
-                lab.put("lab_code", record.get(LAB_HEADERS.CODE.getIndex()).trim());
-                String labDesc = record.get(LAB_HEADERS.DESC.getIndex()).trim();
-                lab.put("lab_raw", labDesc);
-                Collection<String> codes = null;
-                try {
-                    codes = runCTAKESNER(labDesc);
-                } catch (MalformedURLException | ResourceInitializationException e) {
-                    e.printStackTrace();
-                }
-                if (codes != null) {
-                    HashSet<String> cuis = new HashSet<>();
-                    cuis.addAll(codes);
-                    HashSet<String> snomed = new HashSet<>();
-                    HashSet<String> snomedText = new HashSet<>();
-                    for (String s : codes) {
-                        try {
-                            snomed.addAll(CUI_TO_SRC_CODE.get(Optional.of(UMLSLookup.UMLSSourceVocabulary.SNOMEDCT_US)).get(s, () -> {
-                                try {
-                                    return LOOKUP.getSourceCodesForVocab(UMLSLookup.UMLSSourceVocabulary.SNOMEDCT_US, s);
-                                } catch (SQLException e) {
-                                    e.printStackTrace();
-                                    return Collections.emptyList();
-                                }
-                            }));
-                        } catch (ExecutionException e) {
-                            e.printStackTrace();
-                        }
-                    }
-                    for (String s : snomed) {
-                        try {
-                            snomedText.addAll((SRC_CODE_TO_SRC_VOCAB.get(Optional.of(UMLSLookup.UMLSSourceVocabulary.SNOMEDCT_US)).get(s, () -> {
-                                try {
-                                    return LOOKUP.getSourceTermPreferredText(UMLSLookup.UMLSSourceVocabulary.SNOMEDCT_US, s);
-                                } catch (SQLException e) {
-                                    e.printStackTrace();
-                                    return new LinkedList<>();
-                                }
-                            })));
-                        } catch (ExecutionException e) {
-                            e.printStackTrace();
-                        }
-                    }
-                    lab.put("lab_cui", StringUtils.join(cuis, " "));
-                    lab.put("lab_SNOMEDCT_US_code", StringUtils.join(snomed, " "));
-                    lab.put("lab_SNOMEDCT_US_text", StringUtils.join(snomedText, " "));
-                }
-                String value = record.get(LAB_HEADERS.VALUE.getIndex()).trim();
-                lab.put("lab_value_text", value);
-                Double[] parsedValues = parseNumeric(value);
-                if (parsedValues[0] != null) lab.put("lab_value_low", parsedValues[0]);
-                if (parsedValues[1] != null) lab.put("lab_value_high", parsedValues[0]);
-                lab.put("unit", record.get(LAB_HEADERS.UNIT.getIndex()).trim());
-                ElasticsearchIndexingThread.schedule(lab, "LabTest", personID, personID);
-            }
-            SENTINEL.incrementAndGet();
-            synchronized (SENTINEL) {
-                SENTINEL.notifyAll();
-            }
-        }
-    }
-
-
-    private static Double[] parseNumeric(String value) {
+    public static Double[] parseNumeric(String value) {
         Double[] ret = new Double[]{null, null};
         value = value.replaceAll("[\t ]", ""); // TODO doesn't handle negative values...like at all (probably not an issue but...)
         String[] splitRanges = value.split("-");
@@ -576,46 +294,8 @@ public class Main extends Thread {
         return ret;
     }
 
-    private static Collection<String> runCTAKESNER(String text) throws MalformedURLException, ResourceInitializationException {
-        UUID jobUID = UUID.randomUUID();
-        NLPStreamResponse<Set<String>> resp = BlockingStreamCollectionReader.submitMessage(jobUID, text);
-        return resp.getResp();
-    }
-
-    private enum PROC_HEADERS {
-        MCN(0),
-        DATE(1),
-        CODE(2),
-        DESC(3),
-        CODE_VOCAB(4);
-
-        private final int index;
-
-        PROC_HEADERS(int i) {
-            this.index = i;
-        }
-
-        public int getIndex() {
-            return index;
-        }
-    }
-
-    private enum DIAG_HEADERS {
-        MCN(0),
-        DATE(1),
-        CODE(2),
-        DESC(3),
-        CODE_VOCAB(4);
-
-        private final int index;
-
-        DIAG_HEADERS(int i) {
-            this.index = i;
-        }
-
-        public int getIndex() {
-            return index;
-        }
+    private static NLPStreamResponse<Set<String>> runCTAKESNER(String text) throws MalformedURLException, ResourceInitializationException {
+        return BlockingStreamCollectionReader.submitMessage(UUID.randomUUID(), text);
     }
 
     private enum DEM_HEADERS {
@@ -638,22 +318,4 @@ public class Main extends Thread {
         }
     }
 
-    private enum LAB_HEADERS {
-        MCN(0),
-        RESULT_DATE(1),
-        CODE(2),
-        DESC(3),
-        VALUE(5),
-        UNIT(6);
-
-        private final int index;
-
-        LAB_HEADERS(int i) {
-            this.index = i;
-        }
-
-        public int getIndex() {
-            return index;
-        }
-    }
 }

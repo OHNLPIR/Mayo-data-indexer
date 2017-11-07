@@ -46,10 +46,15 @@ public class SynchronizingUMLSDictionaryCasConsumer extends JCasConsumer_ImplBas
             throw new IllegalStateException("A job appeared in the NLP stream without being read through the appropriate " +
                     "stream collection reader");
         }
-        NLPStreamResponse<Set<String>> resp = NLPStreamResponseCache.CACHE.remove(UUID.fromString(meta.getJobID()));
+        NLPStreamResponse resp = NLPStreamResponseCache.CACHE.remove(UUID.fromString(meta.getJobID()));
         if (resp == null) {
             throw new IllegalStateException("Job ID " + meta.getJobID() + " was scheduled but no response object was found!");
         }
-        resp.setResp(cuis, NLPStreamResponse.RESPONSE_STATES.COMPLETED_NORMALLY);
+        try {
+            //noinspection unchecked
+            resp.setResp(cuis, NLPStreamResponse.RESPONSE_STATES.COMPLETED_NORMALLY);
+        } catch (Exception e) {
+            throw new AssertionError("Unmatching types between job cache and job result!", e);
+        }
     }
 }
