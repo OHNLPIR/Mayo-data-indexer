@@ -16,7 +16,6 @@ import edu.mayo.bsi.umlsvts.UMLSLookup;
 import org.apache.commons.csv.CSVFormat;
 import org.apache.commons.csv.CSVParser;
 import org.apache.commons.csv.CSVRecord;
-import org.apache.commons.lang.StringUtils;
 import org.apache.uima.resource.ResourceInitializationException;
 import org.json.JSONObject;
 
@@ -30,7 +29,6 @@ import java.text.DateFormat;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.*;
-import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -293,10 +291,6 @@ public class Main extends Thread {
             }
         }
         return ret;
-    }
-
-    private static NLPStreamResponse<Set<String>> runCTAKESNER(String text) throws MalformedURLException, ResourceInitializationException {
-        return BlockingStreamCollectionReader.submitMessage(UUID.randomUUID(), text);
     }
 
     private enum DEM_HEADERS {

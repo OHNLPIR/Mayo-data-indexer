@@ -19,14 +19,12 @@ import java.util.concurrent.ExecutorService;
 
 public class ProcedureIndexer extends StreamResultSynchronousScheduler<CSVRecord, Set<String>> {
 
-    private UMLSLookup LOOKUP;
     private final List<CSVRecord> RECORDS;
     private DateFormat DF = new SimpleDateFormat("yyyy-MM-dd");
 
     public ProcedureIndexer(ExecutorService executor, List<CSVRecord> records) {
         super(executor);
         this.RECORDS = records;
-        this.LOOKUP = UMLSLookup.newLookup();
         this.DF.setTimeZone(TimeZone.getTimeZone("GMT")); // OMOP Indexer standardizes to this timezone
     }
 
@@ -38,7 +36,7 @@ public class ProcedureIndexer extends StreamResultSynchronousScheduler<CSVRecord
         try {
             codes = cuiLookupCache.get(procCodeCPT, () -> {
                 try {
-                    Collection<String> ret = LOOKUP.getUMLSCuiForSourceVocab(UMLSLookup.UMLSSourceVocabulary.CPT, procCodeCPT);
+                    Collection<String> ret = UMLSLookup.getUMLSCuiForSourceVocab(UMLSLookup.UMLSSourceVocabulary.CPT, procCodeCPT);
                     if (ret.size() == 0) {
                         return Collections.emptySet();
                     } else {
@@ -85,7 +83,7 @@ public class ProcedureIndexer extends StreamResultSynchronousScheduler<CSVRecord
                 try {
                     snomed.addAll(Main.CUI_TO_SRC_CODE.get(Optional.of(UMLSLookup.UMLSSourceVocabulary.SNOMEDCT_US)).get(s, () -> {
                         try {
-                            return new HashSet<>(LOOKUP.getSourceCodesForVocab(UMLSLookup.UMLSSourceVocabulary.SNOMEDCT_US, s));
+                            return new HashSet<>(UMLSLookup.getSourceCodesForVocab(UMLSLookup.UMLSSourceVocabulary.SNOMEDCT_US, s));
                         } catch (SQLException e) {
                             e.printStackTrace();
                             return Collections.emptySet();
@@ -99,7 +97,7 @@ public class ProcedureIndexer extends StreamResultSynchronousScheduler<CSVRecord
                 try {
                     snomedText.addAll((Main.SRC_CODE_TO_SRC_VOCAB.get(Optional.of(UMLSLookup.UMLSSourceVocabulary.SNOMEDCT_US)).get(s, () -> {
                         try {
-                            return new HashSet<>(LOOKUP.getSourceTermPreferredText(UMLSLookup.UMLSSourceVocabulary.SNOMEDCT_US, s));
+                            return new HashSet<>(UMLSLookup.getSourceTermPreferredText(UMLSLookup.UMLSSourceVocabulary.SNOMEDCT_US, s));
                         } catch (SQLException e) {
                             e.printStackTrace();
                             return Collections.emptySet();

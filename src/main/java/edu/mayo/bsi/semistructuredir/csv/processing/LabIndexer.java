@@ -18,14 +18,12 @@ import java.util.concurrent.ExecutorService;
 
 public class LabIndexer extends StreamResultSynchronousScheduler<CSVRecord, Set<String>> {
 
-    private UMLSLookup LOOKUP;
     private final List<CSVRecord> RECORDS;
     private DateFormat DF = new SimpleDateFormat("yyyy-MM-dd");
 
     public LabIndexer(ExecutorService executor, List<CSVRecord> records) {
         super(executor);
         this.RECORDS = records;
-        this.LOOKUP = UMLSLookup.newLookup();
         this.DF.setTimeZone(TimeZone.getTimeZone("GMT")); // OMOP Indexer standardizes to this timezone
     }
 
@@ -62,7 +60,7 @@ public class LabIndexer extends StreamResultSynchronousScheduler<CSVRecord, Set<
                 try {
                     snomed.addAll(Main.CUI_TO_SRC_CODE.get(Optional.of(UMLSLookup.UMLSSourceVocabulary.SNOMEDCT_US)).get(s, () -> {
                         try {
-                            return new HashSet<>(LOOKUP.getSourceCodesForVocab(UMLSLookup.UMLSSourceVocabulary.SNOMEDCT_US, s));
+                            return new HashSet<>(UMLSLookup.getSourceCodesForVocab(UMLSLookup.UMLSSourceVocabulary.SNOMEDCT_US, s));
                         } catch (SQLException e) {
                             e.printStackTrace();
                             return Collections.emptySet();
@@ -76,7 +74,7 @@ public class LabIndexer extends StreamResultSynchronousScheduler<CSVRecord, Set<
                 try {
                     snomedText.addAll((Main.SRC_CODE_TO_SRC_VOCAB.get(Optional.of(UMLSLookup.UMLSSourceVocabulary.SNOMEDCT_US)).get(s, () -> {
                         try {
-                            return new HashSet<>(LOOKUP.getSourceTermPreferredText(UMLSLookup.UMLSSourceVocabulary.SNOMEDCT_US, s));
+                            return new HashSet<>(UMLSLookup.getSourceTermPreferredText(UMLSLookup.UMLSSourceVocabulary.SNOMEDCT_US, s));
                         } catch (SQLException e) {
                             e.printStackTrace();
                             return Collections.emptySet();
@@ -94,7 +92,7 @@ public class LabIndexer extends StreamResultSynchronousScheduler<CSVRecord, Set<
         lab.put("lab_value_text", value);
         Double[] parsedValues = Main.parseNumeric(value);
         if (parsedValues[0] != null) lab.put("lab_value_low", parsedValues[0]);
-        if (parsedValues[1] != null) lab.put("lab_value_high", parsedValues[0]);
+        if (parsedValues[1] != null) lab.put("lab_value_high", parsedValues[1]);
         lab.put("unit", record.get(LAB_HEADERS.UNIT.getIndex()).trim());
         ElasticsearchIndexingThread.schedule(lab, "LabTest", personID, personID);
     }

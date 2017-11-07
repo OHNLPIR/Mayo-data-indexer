@@ -56,7 +56,7 @@ public class BlockingStreamCollectionReader extends JCasCollectionReader_ImplBas
                     e.printStackTrace();
                 }
             }
-            return true;
+            return !PROCESSING_QUEUE.isEmpty();
         }
     }
 
