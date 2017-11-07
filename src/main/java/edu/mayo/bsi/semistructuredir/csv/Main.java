@@ -11,7 +11,6 @@ import edu.mayo.bsi.semistructuredir.csv.pipelines.StreamingCTakesPipelineThread
 import edu.mayo.bsi.semistructuredir.csv.processing.DiagnosisIndexer;
 import edu.mayo.bsi.semistructuredir.csv.processing.LabIndexer;
 import edu.mayo.bsi.semistructuredir.csv.processing.ProcedureIndexer;
-import edu.mayo.bsi.semistructuredir.csv.stream.NLPStreamResponse;
 import edu.mayo.bsi.umlsvts.UMLSLookup;
 import org.apache.commons.csv.CSVFormat;
 import org.apache.commons.csv.CSVParser;
@@ -22,7 +21,6 @@ import org.json.JSONObject;
 import java.io.File;
 import java.io.IOException;
 import java.lang.reflect.InvocationTargetException;
-import java.net.MalformedURLException;
 import java.nio.charset.StandardCharsets;
 import java.sql.SQLException;
 import java.text.DateFormat;
@@ -99,6 +97,7 @@ public class Main extends Thread {
         for (int i = 0; i < numIndexingCores; i++) {
             esExecutor.submit(new ElasticsearchIndexingThread());
         }
+        // Two separate pools but they will generally exclude each other from running at the same time
         CSV_THREAD_POOL = Executors.newFixedThreadPool(NUM_CSV_CORES, new ThreadFactoryBuilder().setNameFormat("SemiStructuredIR-Processor-Thread-%d").build());
         loadDemographics();
         BlockingStreamCollectionReader.waitReady();
@@ -141,20 +140,8 @@ public class Main extends Thread {
         for (File f : new File(ROOT_DIR, "lab").listFiles(new FileExtFilter("csv"))) { // TODO
             CSVParser parser = CSVParser.parse(f, StandardCharsets.UTF_8, CSVFormat.DEFAULT.withFirstRecordAsHeader());
             List<CSVRecord> records = parser.getRecords();
-            List<LabIndexer> indexers = new LinkedList<>();
-            for (List<CSVRecord> record : Lists.partition(records, (int) Math.ceil(records.size() / (double) NUM_CSV_CORES))) {
-                LabIndexer indexer = new LabIndexer(CSV_THREAD_POOL, record);
-                CSV_THREAD_POOL.submit(indexer,
-                        new ThreadFactoryBuilder().setNameFormat("SemiStructuredIR-Lab-Processing-Thread-%d").build());
-                indexers.add(indexer);
-            }
-            for (LabIndexer indexer : indexers) {
-                try {
-                    indexer.waitComplete(); // TODO do we really need to sync on a document level or can we do corpus?
-                } catch (InterruptedException e) {
-                    e.printStackTrace();
-                }
-            }
+            LabIndexer indexer = new LabIndexer(CSV_THREAD_POOL, records);
+            indexer.run();
         }
     }
 
@@ -163,20 +150,8 @@ public class Main extends Thread {
         for (File f : new File(ROOT_DIR, "dx").listFiles(new FileExtFilter("csv"))) { // TODO
             CSVParser parser = CSVParser.parse(f, StandardCharsets.UTF_8, CSVFormat.DEFAULT.withFirstRecordAsHeader());
             List<CSVRecord> records = parser.getRecords();
-            List<DiagnosisIndexer> indexers = new LinkedList<>();
-            for (List<CSVRecord> record : Lists.partition(records, (int) Math.ceil(records.size() / (double) NUM_CSV_CORES))) {
-                DiagnosisIndexer indexer = new DiagnosisIndexer(CSV_THREAD_POOL, record);
-                CSV_THREAD_POOL.submit(indexer,
-                        new ThreadFactoryBuilder().setNameFormat("SemiStructuredIR-Diagnosis-Processing-Thread-%d").build());
-                indexers.add(indexer);
-            }
-            for (DiagnosisIndexer indexer : indexers) {
-                try {
-                    indexer.waitComplete(); // TODO do we really need to sync on a document level or can we do corpus?
-                } catch (InterruptedException e) {
-                    e.printStackTrace();
-                }
-            }
+            DiagnosisIndexer indexer = new DiagnosisIndexer(CSV_THREAD_POOL, records);
+            indexer.run();
         }
     }
 
@@ -185,21 +160,8 @@ public class Main extends Thread {
         for (File f : new File(ROOT_DIR, "proc").listFiles(new FileExtFilter("csv"))) { // TODO
             CSVParser parser = CSVParser.parse(f, StandardCharsets.UTF_8, CSVFormat.DEFAULT.withFirstRecordAsHeader());
             List<CSVRecord> records = parser.getRecords();
-            List<ProcedureIndexer> indexers = new LinkedList<>();
-            for (List<CSVRecord> record : Lists.partition(records, (int) Math.ceil(records.size() / (double) NUM_CSV_CORES))) {
-                // Because umls db lookup is slow and a part of the caching process, we want this to also be done as part of a thread pool
-                ProcedureIndexer indexer = new ProcedureIndexer(CSV_THREAD_POOL, record);
-                CSV_THREAD_POOL.submit(indexer,
-                        new ThreadFactoryBuilder().setNameFormat("SemiStructuredIR-Procedure-Processing-Thread-%d").build());
-                indexers.add(indexer);
-            }
-            for (ProcedureIndexer indexer : indexers) {
-                try {
-                    indexer.waitComplete(); // TODO do we really need to sync on a document level or can we do corpus?
-                } catch (InterruptedException e) {
-                    e.printStackTrace();
-                }
-            }
+            ProcedureIndexer indexer = new ProcedureIndexer(CSV_THREAD_POOL, records);
+            indexer.run();
         }
     }
 

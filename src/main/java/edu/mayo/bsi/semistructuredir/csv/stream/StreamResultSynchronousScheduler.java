@@ -5,17 +5,19 @@ import com.google.common.collect.Multimaps;
 import edu.mayo.bsi.semistructuredir.csv.cr.BlockingStreamCollectionReader;
 
 import java.util.*;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 // TODO document
 public abstract class StreamResultSynchronousScheduler<S, T> extends Thread {
 
-    private final ExecutorService executor;
+    private final ExecutorService EXECUTOR;
     private final AtomicBoolean COMPLETE;
 
     protected StreamResultSynchronousScheduler(ExecutorService executor) {
-        this.executor = executor;
+        this.EXECUTOR = executor;
         this.COMPLETE = new AtomicBoolean(false);
     }
 
@@ -48,15 +50,22 @@ public abstract class StreamResultSynchronousScheduler<S, T> extends Thread {
                 results.add(resultFuture);
             }
         }
+        List<Future<?>> BARRIER = new LinkedList<>();
         for (NLPStreamResponse<T> future : results) {
             for (UUID uid : streamRespToJobUIDs.get(future)) {
-                executor.submit(() -> {
+                BARRIER.add(EXECUTOR.submit(() -> {
                     T item = future.getResp();
                     complete(uIDToRecordMap.remove(uid), item);
-                });
+                }));
             }
         }
-        // TODO this doesn't wait for all subtasks to finish above, but is close enough for our purposes
+        for (Future f : BARRIER) {
+            try {
+                f.get();
+            } catch (InterruptedException | ExecutionException e) {
+                throw new IllegalStateException("Error waiting for request completion", e);
+            }
+        }
         synchronized (COMPLETE) {
             COMPLETE.getAndSet(true);
             COMPLETE.notifyAll();

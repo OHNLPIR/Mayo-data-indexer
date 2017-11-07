@@ -15,7 +15,6 @@ import java.text.SimpleDateFormat;
 import java.util.*;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.atomic.AtomicInteger;
 
 public class DiagnosisIndexer extends StreamResultSynchronousScheduler<CSVRecord, Set<String>> {
 
