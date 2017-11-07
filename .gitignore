@@ -1,6 +1,7 @@
 ### Project Specific ###
 src/main/resources/configuration.json
 /data
+/csv
 /SNOMEDCT_US
 /OHDSI
 /UMLS

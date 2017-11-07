@@ -1,5 +1,8 @@
 package edu.mayo.bsi.semistructuredir.csv.cr;
 
+import edu.mayo.bsi.semistructuredir.csv.stream.NLPStreamResponse;
+import edu.mayo.bsi.semistructuredir.csv.stream.NLPStreamResponseCache;
+import edu.mayo.uima.streaming.StreamingMetadata;
 import org.apache.ctakes.typesystem.type.structured.DocumentID;
 import org.apache.uima.UIMAFramework;
 import org.apache.uima.collection.CollectionException;
@@ -9,7 +12,10 @@ import org.apache.uima.util.Level;
 import org.apache.uima.util.Progress;
 
 import java.io.IOException;
+import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.BlockingDeque;
+import java.util.concurrent.Future;
 import java.util.concurrent.LinkedBlockingDeque;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -17,7 +23,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 /**
  * Thread-Safe: A collection reader implementation for UIMA that supports streamed (live) input; will continuously wait until an
  * element is available for processing in a shared queue and block otherwise, <br>
- * jobs can be submitted via {@link #submitMessage(String, String)}. <br>
+ * jobs can be submitted via {@link #submitMessage(UUID, String)}. <br>
  * <br>
  * <p>
  * <p>
@@ -32,12 +38,10 @@ public class BlockingStreamCollectionReader extends JCasCollectionReader_ImplBas
 
     @Override
     public void getNext(JCas jCas) throws IOException, CollectionException {
-        UIMAFramework.getLogger(BlockingStreamCollectionReader.class).log(Level.INFO, "Received Item");
         jCas.setDocumentText(CURRENT_WORK.text.trim());
-        DocumentID id = new DocumentID(jCas);
-        id.setDocumentID(CURRENT_WORK.id);
-        id.addToIndexes();
-        UIMAFramework.getLogger(BlockingStreamCollectionReader.class).log(Level.INFO, "Finished Receiving Item " + jCas.getDocumentText());
+        StreamingMetadata meta = new StreamingMetadata(jCas);
+        meta.setJobID(CURRENT_WORK.id.toString());
+        meta.addToIndexes();
     }
 
     @Override
@@ -59,12 +63,13 @@ public class BlockingStreamCollectionReader extends JCasCollectionReader_ImplBas
         return new Progress[0];
     }
 
-    public static void submitMessage(String uID, String msg) {
+    public static NLPStreamResponse<Set<String>> submitMessage(UUID uID, String msg) {
         if (!STREAM_OPEN.get()) {
             throw new IllegalStateException("Trying to submit a message for processing to a closed queue");
         } else {
             boolean successfulSubmit = false;
-            Job j = new Job(msg, uID);
+            NLPStreamResponse<Set<String>> ret = new NLPStreamResponse<>();
+            Job j = new Job(msg, uID, ret);
             while (!successfulSubmit) {
                 try {
                     successfulSubmit = PROCESSING_QUEUE.offer(j, 1000, TimeUnit.MILLISECONDS);
@@ -75,6 +80,10 @@ public class BlockingStreamCollectionReader extends JCasCollectionReader_ImplBas
                     e.printStackTrace();
                 }
             }
+            if (NLPStreamResponseCache.CACHE.put(uID, ret) != null) {
+                throw new IllegalStateException("Duplicate UID!");
+            }
+            return ret;
         }
     }
 
@@ -98,11 +107,13 @@ public class BlockingStreamCollectionReader extends JCasCollectionReader_ImplBas
 
     private static class Job {
         String text;
-        String id;
+        UUID id;
+        NLPStreamResponse<Set<String>> future;
 
-        Job(String text, String id) {
+        Job(String text, UUID id, NLPStreamResponse<Set<String>> future) {
             this.text = text;
             this.id = id;
+            this.future = future;
         }
     }
 }

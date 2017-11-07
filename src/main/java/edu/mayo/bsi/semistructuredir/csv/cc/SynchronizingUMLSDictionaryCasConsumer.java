@@ -1,5 +1,8 @@
 package edu.mayo.bsi.semistructuredir.csv.cc;
 
+import edu.mayo.bsi.semistructuredir.csv.stream.NLPStreamResponse;
+import edu.mayo.bsi.semistructuredir.csv.stream.NLPStreamResponseCache;
+import edu.mayo.uima.streaming.StreamingMetadata;
 import org.apache.ctakes.typesystem.type.refsem.UmlsConcept;
 import org.apache.ctakes.typesystem.type.structured.DocumentID;
 import org.apache.ctakes.typesystem.type.textsem.EntityMention;
@@ -12,11 +15,11 @@ import org.apache.uima.jcas.JCas;
 
 import java.util.HashSet;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 public class SynchronizingUMLSDictionaryCasConsumer extends JCasConsumer_ImplBase {
 
-    public static final ConcurrentHashMap<String, Set<String>> PROCESSED_CUIS = new ConcurrentHashMap<>(); // TODO cache expiry
 
     @Override
     public void process(JCas jCas) throws AnalysisEngineProcessException {
@@ -38,10 +41,15 @@ public class SynchronizingUMLSDictionaryCasConsumer extends JCasConsumer_ImplBas
                 cuis.add(((UmlsConcept) fs).getCui());
             }
         }
-
-        synchronized (PROCESSED_CUIS) {
-            PROCESSED_CUIS.put(JCasUtil.selectSingle(jCas, DocumentID.class).getDocumentID(), cuis);
-            PROCESSED_CUIS.notifyAll();
+        StreamingMetadata meta = JCasUtil.selectSingle(jCas, StreamingMetadata.class);
+        if (meta == null) {
+            throw new IllegalStateException("A job appeared in the NLP stream without being read through the appropriate " +
+                    "stream collection reader");
         }
+        NLPStreamResponse<Set<String>> resp = NLPStreamResponseCache.CACHE.remove(UUID.fromString(meta.getJobID()));
+        if (resp == null) {
+            throw new IllegalStateException("Job ID " + meta.getJobID() + " was scheduled but no response object was found!");
+        }
+        resp.setResp(cuis, NLPStreamResponse.RESPONSE_STATES.COMPLETED_NORMALLY);
     }
 }

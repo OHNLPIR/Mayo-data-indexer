@@ -11,7 +11,7 @@ import org.apache.uima.fit.factory.CollectionReaderFactory;
 import org.apache.uima.fit.pipeline.SimplePipeline;
 
 /**
- * 3
+ * A thread that runs a cTAKES pipeline as a stream with a shared task queue
  */
 public class StreamingCTakesPipelineThread extends Thread {
 

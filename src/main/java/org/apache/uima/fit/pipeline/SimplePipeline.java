@@ -26,7 +26,12 @@ import static org.apache.uima.fit.util.LifeCycleUtil.collectionProcessComplete;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
+import java.util.UUID;
 
+import edu.mayo.bsi.semistructuredir.csv.stream.NLPStreamResponse;
+import edu.mayo.bsi.semistructuredir.csv.stream.NLPStreamResponseCache;
+import edu.mayo.uima.streaming.StreamingMetadata;
 import org.apache.uima.UIMAException;
 import org.apache.uima.UIMAFramework;
 import org.apache.uima.analysis_engine.AnalysisEngine;
@@ -178,7 +183,13 @@ public final class SimplePipeline {
                 try {
                     aae.process(cas);
                 } catch (Exception e) {
-                    // TODO: output this somewhere
+                    JCas jcas = cas.getJCas();
+                    StreamingMetadata meta = JCasUtil.selectSingle(jcas, StreamingMetadata.class);
+                    if (meta != null) {
+                        NLPStreamResponse<Set<String>> resp
+                                = NLPStreamResponseCache.CACHE.remove(UUID.fromString(meta.getJobID()));
+                        resp.setResp(null, NLPStreamResponse.RESPONSE_STATES.COMPLETED_ERR);
+                    }
                     e.printStackTrace();
                 }
                 cas.reset();

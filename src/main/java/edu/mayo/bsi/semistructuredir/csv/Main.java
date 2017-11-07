@@ -9,6 +9,7 @@ import edu.mayo.bsi.semistructuredir.csv.cc.SynchronizingUMLSDictionaryCasConsum
 import edu.mayo.bsi.semistructuredir.csv.cr.BlockingStreamCollectionReader;
 import edu.mayo.bsi.semistructuredir.csv.elasticsearch.ElasticsearchIndexingThread;
 import edu.mayo.bsi.semistructuredir.csv.pipelines.StreamingCTakesPipelineThread;
+import edu.mayo.bsi.semistructuredir.csv.stream.NLPStreamResponse;
 import edu.mayo.bsi.umlsvts.UMLSLookup;
 import org.apache.commons.csv.CSVFormat;
 import org.apache.commons.csv.CSVParser;
@@ -32,7 +33,8 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-
+// TODO ctakes stream pattern should really be submit jobs->barrier but re-engineering cost at this point is not really worth it
+// Still want to change at some point though
 public class Main extends Thread {
 
     private static Integer NUM_CSV_CORES;
@@ -575,20 +577,9 @@ public class Main extends Thread {
     }
 
     private static Collection<String> runCTAKESNER(String text) throws MalformedURLException, ResourceInitializationException {
-        Collection<String> ret;
         UUID jobUID = UUID.randomUUID();
-        BlockingStreamCollectionReader.submitMessage(jobUID.toString(), text);
-        synchronized (SynchronizingUMLSDictionaryCasConsumer.PROCESSED_CUIS) {
-            while (!SynchronizingUMLSDictionaryCasConsumer.PROCESSED_CUIS.containsKey(jobUID.toString())) {
-                try {
-                    SynchronizingUMLSDictionaryCasConsumer.PROCESSED_CUIS.wait(1000);
-                } catch (InterruptedException e) {
-                    e.printStackTrace();
-                }
-            }
-            ret = SynchronizingUMLSDictionaryCasConsumer.PROCESSED_CUIS.remove(jobUID.toString()); //TODO will hang indefinitely if an error occured during NER
-        }
-        return ret;
+        NLPStreamResponse<Set<String>> resp = BlockingStreamCollectionReader.submitMessage(jobUID, text);
+        return resp.getResp();
     }
 
     private enum PROC_HEADERS {
