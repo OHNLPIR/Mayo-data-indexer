@@ -100,7 +100,6 @@ public class Main extends Thread {
         // Two separate pools but they will generally exclude each other from running at the same time
         CSV_THREAD_POOL = Executors.newFixedThreadPool(NUM_CSV_CORES, new ThreadFactoryBuilder().setNameFormat("SemiStructuredIR-Processor-Thread-%d").build());
         loadDemographics();
-        BlockingStreamCollectionReader.waitReady();
         loadLabs();
         loadProcedures();
         loadDiagnosis();

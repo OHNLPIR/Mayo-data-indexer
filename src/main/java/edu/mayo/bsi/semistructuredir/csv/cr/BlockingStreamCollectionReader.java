@@ -73,16 +73,6 @@ public class BlockingStreamCollectionReader extends JCasCollectionReader_ImplBas
         return new Progress[0];
     }
 
-    public static void waitReady() {
-        synchronized (STREAM_READY) {
-            while (!STREAM_READY.get()) {
-                try {
-                    STREAM_READY.wait(1000);
-                } catch (InterruptedException ignored) {}
-            }
-        }
-    }
-
     public static <T> NLPStreamResponse<T> submitMessage(UUID uID, String msg) {
         if (!STREAM_OPEN.get()) {
             throw new IllegalStateException("Trying to submit a message for processing to a closed queue");
