@@ -1,18 +1,25 @@
 package edu.mayo.bsi.semistructuredir.csv.stream;
 
+import java.util.Collection;
 import java.util.UUID;
+import java.util.concurrent.LinkedBlockingDeque;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Consumer;
 
 // TODO document
 public class NLPStreamResponse<T> {
     private final UUID jobUID;
     private T resp;
     private final AtomicInteger SENTINEL;
+    private final AtomicBoolean FINALIZERS_PROCESSED = new AtomicBoolean(false);
+    private final Collection<Consumer<T>> FINALIZERS;
 
     public NLPStreamResponse(UUID jobUID) {
         this.SENTINEL = new AtomicInteger(RESPONSE_STATES.NOT_COMPLETED.getStateId());
         this.resp = null;
         this.jobUID = jobUID;
+        this.FINALIZERS = new LinkedBlockingDeque<>();
     }
 
     public synchronized void setResp(T resp, RESPONSE_STATES state) {
@@ -23,6 +30,30 @@ public class NLPStreamResponse<T> {
         synchronized (SENTINEL) {
             SENTINEL.set(state.getStateId());
             SENTINEL.notifyAll();
+        }
+    }
+
+    public synchronized void runFinalizers() {
+        synchronized (FINALIZERS_PROCESSED) {
+            while (!FINALIZERS_PROCESSED.get()) {
+                try {
+                    FINALIZERS_PROCESSED.wait(1000);
+                } catch (InterruptedException ignored) {}
+            }
+            for (Consumer<T> consumer : FINALIZERS) {
+                consumer.accept(this.resp);
+            }
+        }
+    }
+
+    public void addResponseConsumer(Consumer<T> consumer) {
+        synchronized (FINALIZERS_PROCESSED) {
+            if (!FINALIZERS_PROCESSED.get()) {
+                FINALIZERS.add(consumer);
+            } else {
+                FINALIZERS.add(consumer);
+                consumer.accept(this.resp);
+            }
         }
     }
 

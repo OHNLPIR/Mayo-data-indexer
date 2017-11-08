@@ -53,6 +53,7 @@ public class SynchronizingUMLSDictionaryCasConsumer extends JCasConsumer_ImplBas
         try {
             //noinspection unchecked
             resp.setResp(cuis, NLPStreamResponse.RESPONSE_STATES.COMPLETED_NORMALLY);
+            resp.runFinalizers();
         } catch (Exception e) {
             throw new AssertionError("Unmatching types between job cache and job result!", e);
         }

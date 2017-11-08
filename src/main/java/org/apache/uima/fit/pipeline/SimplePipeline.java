@@ -186,11 +186,12 @@ public final class SimplePipeline {
                     JCas jcas = cas.getJCas();
                     StreamingMetadata meta = JCasUtil.selectSingle(jcas, StreamingMetadata.class);
                     if (meta != null) {
-                        NLPStreamResponse<Set<String>> resp
+                        NLPStreamResponse<?> resp
                                 = NLPStreamResponseCache.CACHE.remove(UUID.fromString(meta.getJobID()));
                         resp.setResp(null, NLPStreamResponse.RESPONSE_STATES.COMPLETED_ERR);
                     }
                     e.printStackTrace();
+                    System.exit(1);
                 }
                 cas.reset();
             }

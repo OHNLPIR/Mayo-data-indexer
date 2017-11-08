@@ -22,12 +22,13 @@ public abstract class StreamResultSynchronousScheduler<S, T> extends Thread {
     }
 
     @Override
-    public void run() {
-        LinkedList<NLPStreamResponse<T>> results = new LinkedList<>();
+    public void run() { // TODO: This works but is somewhat inefficient as you have to wait for entire collection to be read in due to caching, maybe best to skip
+        LinkedList<NLPStreamResponse<T>> scheduledResults = new LinkedList<>();
         Map<UUID, S> uIDToRecordMap = new HashMap<>();
         // Responses can be associated with multiple jobs in the case of cached jobs
         Multimap<NLPStreamResponse<T>, UUID> streamRespToJobUIDs = Multimaps.newSetMultimap(new HashMap<>(), HashSet::new);
         Map<String, NLPStreamResponse<T>> localFutureCache = new HashMap<>();
+        List<NLPStreamResponse<T>> BARRIERS = new LinkedList<>();
         while (hasNext()) {
             S nextRecord = getNext();
             UUID jobUID = UUID.randomUUID();
@@ -35,8 +36,10 @@ public abstract class StreamResultSynchronousScheduler<S, T> extends Thread {
             T cached = getCachedResult(nextRecord);
             if (cached != null) {
                 NLPStreamResponse<T> future = new NLPStreamResponse<>(jobUID);
+                future.addResponseConsumer((item) -> complete(nextRecord, item));
                 future.setResp(cached, NLPStreamResponse.RESPONSE_STATES.COMPLETED_NORMALLY);
-                results.add(future);
+                BARRIERS.add(future);
+                scheduledResults.add(future);
             } else {
                 String data = getCTakesDocumentText(nextRecord);
                 NLPStreamResponse<T> resultFuture;
@@ -46,28 +49,16 @@ public abstract class StreamResultSynchronousScheduler<S, T> extends Thread {
                     resultFuture = BlockingStreamCollectionReader.submitMessage(jobUID, data);
                     localFutureCache.put(data, resultFuture);
                 }
+                resultFuture.addResponseConsumer((item) -> complete(nextRecord, item));
                 streamRespToJobUIDs.put(resultFuture, jobUID);
-                results.add(resultFuture);
+                scheduledResults.add(resultFuture);
             }
         }
-        List<Future<?>> BARRIER = new LinkedList<>();
-        for (NLPStreamResponse<T> future : results) {
-            for (UUID uid : streamRespToJobUIDs.get(future)) {
-                BARRIER.add(EXECUTOR.submit(() -> {
-                    T item = future.getResp();
-                    complete(uIDToRecordMap.remove(uid), item);
-                }));
-            }
-        }
-        for (Future f : BARRIER) {
-            try {
-                f.get();
-            } catch (InterruptedException | ExecutionException e) {
-                throw new IllegalStateException("Error waiting for request completion", e);
-            }
+        for (NLPStreamResponse<T> cachedResp : BARRIERS) {
+            cachedResp.runFinalizers();
         }
         synchronized (COMPLETE) {
-            COMPLETE.getAndSet(true);
+            COMPLETE.set(true);
             COMPLETE.notifyAll();
         }
     }

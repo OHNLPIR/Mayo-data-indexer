@@ -3,9 +3,11 @@ package edu.mayo.bsi.semistructuredir.csv.cr;
 import edu.mayo.bsi.semistructuredir.csv.stream.NLPStreamResponse;
 import edu.mayo.bsi.semistructuredir.csv.stream.NLPStreamResponseCache;
 import edu.mayo.uima.streaming.StreamingMetadata;
+import org.apache.uima.UimaContext;
 import org.apache.uima.collection.CollectionException;
 import org.apache.uima.fit.component.JCasCollectionReader_ImplBase;
 import org.apache.uima.jcas.JCas;
+import org.apache.uima.resource.ResourceInitializationException;
 import org.apache.uima.util.Progress;
 
 import java.io.IOException;
@@ -14,6 +16,7 @@ import java.util.concurrent.BlockingDeque;
 import java.util.concurrent.LinkedBlockingDeque;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Thread-Safe: A collection reader implementation for UIMA that supports streamed (live) input; will continuously wait until an
@@ -27,10 +30,17 @@ import java.util.concurrent.atomic.AtomicBoolean;
  */
 public class BlockingStreamCollectionReader extends JCasCollectionReader_ImplBase {
 
-    private static final BlockingDeque<Job> PROCESSING_QUEUE = new LinkedBlockingDeque<>(1000);
+    private static final BlockingDeque<Job> PROCESSING_QUEUE = new LinkedBlockingDeque<>(10000); // TODO this queue being too low can cause deadlock!
     private static final AtomicBoolean STREAM_OPEN = new AtomicBoolean(true);
     private static final AtomicBoolean STREAM_READY = new AtomicBoolean(false);
+    private static final AtomicInteger THREADS_TO_INIT = new AtomicInteger(0); // Do not start processing until all threads complete
     private Job CURRENT_WORK = null;
+
+    @Override
+    public void initialize(UimaContext context) throws ResourceInitializationException {
+        super.initialize(context);
+        THREADS_TO_INIT.incrementAndGet(); // TODO imperfect solution but close enough for now
+    }
 
     @Override
     public void getNext(JCas jCas) throws IOException, CollectionException {
@@ -42,10 +52,20 @@ public class BlockingStreamCollectionReader extends JCasCollectionReader_ImplBas
 
     @Override
     public boolean hasNext() throws IOException, CollectionException {
+        THREADS_TO_INIT.decrementAndGet();
         synchronized (STREAM_READY) {
             if (!STREAM_READY.get()) {
-                STREAM_READY.set(true);
-                STREAM_READY.notifyAll();
+                synchronized (THREADS_TO_INIT) {
+                    while (THREADS_TO_INIT.get() != 0) {
+                        try {
+                            THREADS_TO_INIT.wait(1000);
+                        } catch (InterruptedException e) {
+                            e.printStackTrace();
+                        }
+                    }
+                    STREAM_READY.set(true);
+                    STREAM_READY.notifyAll();
+                }
             }
         }
         synchronized (PROCESSING_QUEUE) {
