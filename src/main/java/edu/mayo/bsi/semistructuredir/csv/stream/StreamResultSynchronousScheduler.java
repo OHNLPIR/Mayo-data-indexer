@@ -22,24 +22,19 @@ public abstract class StreamResultSynchronousScheduler<S, T> extends Thread {
     }
 
     @Override
-    public void run() { // TODO: This works but is somewhat inefficient as you have to wait for entire collection to be read in due to caching, maybe best to skip
-        LinkedList<NLPStreamResponse<T>> scheduledResults = new LinkedList<>();
-        Map<UUID, S> uIDToRecordMap = new HashMap<>();
+    public void run() {
         // Responses can be associated with multiple jobs in the case of cached jobs
-        Multimap<NLPStreamResponse<T>, UUID> streamRespToJobUIDs = Multimaps.newSetMultimap(new HashMap<>(), HashSet::new);
         Map<String, NLPStreamResponse<T>> localFutureCache = new HashMap<>();
         List<NLPStreamResponse<T>> BARRIERS = new LinkedList<>();
         while (hasNext()) {
             S nextRecord = getNext();
             UUID jobUID = UUID.randomUUID();
-            uIDToRecordMap.put(jobUID, nextRecord);
             T cached = getCachedResult(nextRecord);
             if (cached != null) {
                 NLPStreamResponse<T> future = new NLPStreamResponse<>(jobUID);
-                future.addResponseConsumer((item) -> complete(nextRecord, item));
+                future.addResponseConsumer((item) -> EXECUTOR.submit(() -> complete(nextRecord, item)));
                 future.setResp(cached, NLPStreamResponse.RESPONSE_STATES.COMPLETED_NORMALLY);
                 BARRIERS.add(future);
-                scheduledResults.add(future);
             } else {
                 String data = getCTakesDocumentText(nextRecord);
                 NLPStreamResponse<T> resultFuture;
@@ -49,13 +44,11 @@ public abstract class StreamResultSynchronousScheduler<S, T> extends Thread {
                     resultFuture = BlockingStreamCollectionReader.submitMessage(jobUID, data);
                     localFutureCache.put(data, resultFuture);
                 }
-                resultFuture.addResponseConsumer((item) -> complete(nextRecord, item));
-                streamRespToJobUIDs.put(resultFuture, jobUID);
-                scheduledResults.add(resultFuture);
+                resultFuture.addResponseConsumer((item) -> EXECUTOR.submit(() -> complete(nextRecord, item)));
             }
         }
         for (NLPStreamResponse<T> cachedResp : BARRIERS) {
-            cachedResp.runFinalizers();
+            EXECUTOR.submit(cachedResp::runFinalizers);
         }
         synchronized (COMPLETE) {
             COMPLETE.set(true);
