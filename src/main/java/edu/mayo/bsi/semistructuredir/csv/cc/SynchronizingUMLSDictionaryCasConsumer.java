@@ -13,6 +13,7 @@ import org.apache.uima.fit.component.JCasConsumer_ImplBase;
 import org.apache.uima.fit.util.JCasUtil;
 import org.apache.uima.jcas.JCas;
 
+import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.UUID;
@@ -41,6 +42,7 @@ public class SynchronizingUMLSDictionaryCasConsumer extends JCasConsumer_ImplBas
                 cuis.add(((UmlsConcept) fs).getCui());
             }
         }
+        System.out.println("Completed processing text " + jCas.getDocumentText() + " with " + Arrays.toString(cuis.toArray()));
         StreamingMetadata meta = JCasUtil.selectSingle(jCas, StreamingMetadata.class);
         if (meta == null) {
             throw new IllegalStateException("A job appeared in the NLP stream without being read through the appropriate " +

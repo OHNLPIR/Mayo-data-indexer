@@ -3,6 +3,7 @@ package edu.mayo.bsi.semistructuredir.csv.cr;
 import edu.mayo.bsi.semistructuredir.csv.stream.NLPStreamResponse;
 import edu.mayo.bsi.semistructuredir.csv.stream.NLPStreamResponseCache;
 import edu.mayo.uima.streaming.StreamingMetadata;
+import org.apache.ctakes.typesystem.type.structured.DocumentID;
 import org.apache.uima.UimaContext;
 import org.apache.uima.collection.CollectionException;
 import org.apache.uima.fit.component.JCasCollectionReader_ImplBase;
@@ -44,10 +45,14 @@ public class BlockingStreamCollectionReader extends JCasCollectionReader_ImplBas
 
     @Override
     public void getNext(JCas jCas) throws IOException, CollectionException {
+        System.out.println("Recieved text " + CURRENT_WORK.text.trim());
         jCas.setDocumentText(CURRENT_WORK.text.trim());
         StreamingMetadata meta = new StreamingMetadata(jCas);
         meta.setJobID(CURRENT_WORK.id.toString());
         meta.addToIndexes();
+        DocumentID id = new DocumentID(jCas);
+        id.setDocumentID(CURRENT_WORK.id.toString());
+        id.addToIndexes();
     }
 
     @Override
