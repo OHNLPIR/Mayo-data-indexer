@@ -103,14 +103,14 @@ public class Main extends Thread {
         loadLabs();
         loadProcedures();
         loadDiagnosis();
+        CSV_THREAD_POOL.shutdown();
+        CSV_THREAD_POOL.awaitTermination(10000, TimeUnit.DAYS);
         StreamingCTakesPipelineThread.shutdown();
         ElasticsearchIndexingThread.shutdown();
         cTakesExecutor.shutdown();
         cTakesExecutor.awaitTermination(10000, TimeUnit.DAYS);
         esExecutor.shutdown();
         esExecutor.awaitTermination(10000, TimeUnit.DAYS);
-        CSV_THREAD_POOL.shutdown();
-        CSV_THREAD_POOL.awaitTermination(10000, TimeUnit.DAYS);
     }
 
     @SuppressWarnings("SynchronizationOnLocalVariableOrMethodParameter")
