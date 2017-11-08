@@ -40,7 +40,6 @@ public class BlockingStreamCollectionReader extends JCasCollectionReader_ImplBas
     @Override
     public void initialize(UimaContext context) throws ResourceInitializationException {
         super.initialize(context);
-        THREADS_TO_INIT.incrementAndGet(); // TODO imperfect solution but close enough for now
     }
 
     @Override
@@ -57,26 +56,6 @@ public class BlockingStreamCollectionReader extends JCasCollectionReader_ImplBas
 
     @Override
     public boolean hasNext() throws IOException, CollectionException {
-        synchronized (STREAM_READY) {
-            if (!STREAM_READY.get()) {
-                THREADS_TO_INIT.decrementAndGet();
-            }
-        }
-        synchronized (STREAM_READY) {
-            if (!STREAM_READY.get()) {
-                synchronized (THREADS_TO_INIT) {
-                    while (THREADS_TO_INIT.get() != 0) {
-                        try {
-                            THREADS_TO_INIT.wait(1000);
-                        } catch (InterruptedException e) {
-                            e.printStackTrace();
-                        }
-                    }
-                    STREAM_READY.set(true);
-                    STREAM_READY.notifyAll();
-                }
-            }
-        }
         synchronized (PROCESSING_QUEUE) {
             while ((CURRENT_WORK = PROCESSING_QUEUE.pollFirst()) == null && STREAM_OPEN.get()) {
                 try {
