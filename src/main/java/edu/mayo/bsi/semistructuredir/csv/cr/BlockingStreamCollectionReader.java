@@ -17,7 +17,6 @@ import java.util.concurrent.BlockingDeque;
 import java.util.concurrent.LinkedBlockingDeque;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Thread-Safe: A collection reader implementation for UIMA that supports streamed (live) input; will continuously wait until an
@@ -33,8 +32,6 @@ public class BlockingStreamCollectionReader extends JCasCollectionReader_ImplBas
 
     private static final BlockingDeque<Job> PROCESSING_QUEUE = new LinkedBlockingDeque<>(10000);
     private static final AtomicBoolean STREAM_OPEN = new AtomicBoolean(true);
-    private static final AtomicBoolean STREAM_READY = new AtomicBoolean(false);
-    private static final AtomicInteger THREADS_TO_INIT = new AtomicInteger(0); // Do not start processing until all threads complete
     private Job CURRENT_WORK = null;
 
     @Override
@@ -44,7 +41,6 @@ public class BlockingStreamCollectionReader extends JCasCollectionReader_ImplBas
 
     @Override
     public void getNext(JCas jCas) throws IOException, CollectionException {
-        System.out.println("Recieved text " + CURRENT_WORK.text.trim());
         jCas.setDocumentText(CURRENT_WORK.text.trim());
         StreamingMetadata meta = new StreamingMetadata(jCas);
         meta.setJobID(CURRENT_WORK.id.toString());

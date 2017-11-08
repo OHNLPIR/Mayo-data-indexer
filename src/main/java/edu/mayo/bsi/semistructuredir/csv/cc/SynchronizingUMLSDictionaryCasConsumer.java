@@ -4,7 +4,6 @@ import edu.mayo.bsi.semistructuredir.csv.stream.NLPStreamResponse;
 import edu.mayo.bsi.semistructuredir.csv.stream.NLPStreamResponseCache;
 import edu.mayo.uima.streaming.StreamingMetadata;
 import org.apache.ctakes.typesystem.type.refsem.UmlsConcept;
-import org.apache.ctakes.typesystem.type.structured.DocumentID;
 import org.apache.ctakes.typesystem.type.textsem.EntityMention;
 import org.apache.ctakes.typesystem.type.textsem.EventMention;
 import org.apache.uima.analysis_engine.AnalysisEngineProcessException;
@@ -13,11 +12,7 @@ import org.apache.uima.fit.component.JCasConsumer_ImplBase;
 import org.apache.uima.fit.util.JCasUtil;
 import org.apache.uima.jcas.JCas;
 
-import java.util.Arrays;
-import java.util.HashSet;
-import java.util.Set;
-import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.*;
 
 public class SynchronizingUMLSDictionaryCasConsumer extends JCasConsumer_ImplBase {
 
@@ -42,7 +37,6 @@ public class SynchronizingUMLSDictionaryCasConsumer extends JCasConsumer_ImplBas
                 cuis.add(((UmlsConcept) fs).getCui());
             }
         }
-        System.out.println("Completed processing text " + jCas.getDocumentText() + " with " + Arrays.toString(cuis.toArray()));
         StreamingMetadata meta = JCasUtil.selectSingle(jCas, StreamingMetadata.class);
         if (meta == null) {
             throw new IllegalStateException("A job appeared in the NLP stream without being read through the appropriate " +
@@ -52,7 +46,7 @@ public class SynchronizingUMLSDictionaryCasConsumer extends JCasConsumer_ImplBas
         if (resp != null) { // Assume we somehow did duplicate work if resp is actually null so just skip over without doing anything
             try {
                 //noinspection unchecked
-                resp.setResp(cuis, NLPStreamResponse.RESPONSE_STATES.COMPLETED_NORMALLY);
+                resp.setResp(Collections.unmodifiableSet(cuis), NLPStreamResponse.RESPONSE_STATES.COMPLETED_NORMALLY);
                 resp.runFinalizers();
             } catch (Exception e) {
                 throw new AssertionError("Unmatching types between job cache and job result!", e);

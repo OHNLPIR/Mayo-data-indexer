@@ -51,9 +51,8 @@ public class LabIndexer extends StreamResultSynchronousScheduler<CSVRecord, Set<
         lab.put("lab_code", record.get(LAB_HEADERS.CODE.getIndex()).trim());
         String labDesc = record.get(LAB_HEADERS.DESC.getIndex()).trim();
         lab.put("lab_raw", labDesc);
-        if (codes != null) {
-            HashSet<String> cuis = new HashSet<>();
-            cuis.addAll(codes);
+        if (codes != null && !codes.isEmpty()) {
+            lab.put("lab_cui", StringUtils.join(codes, " "));
             HashSet<String> snomed = new HashSet<>();
             HashSet<String> snomedText = new HashSet<>();
             for (String s : codes) {
@@ -84,7 +83,6 @@ public class LabIndexer extends StreamResultSynchronousScheduler<CSVRecord, Set<
                     e.printStackTrace();
                 }
             }
-            lab.put("lab_cui", StringUtils.join(cuis, " "));
             lab.put("lab_SNOMEDCT_US_code", StringUtils.join(snomed, " "));
             lab.put("lab_SNOMEDCT_US_text", StringUtils.join(snomedText, " "));
         }
