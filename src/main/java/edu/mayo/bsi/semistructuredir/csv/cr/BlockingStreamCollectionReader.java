@@ -57,7 +57,11 @@ public class BlockingStreamCollectionReader extends JCasCollectionReader_ImplBas
 
     @Override
     public boolean hasNext() throws IOException, CollectionException {
-        THREADS_TO_INIT.decrementAndGet();
+        synchronized (STREAM_READY) {
+            if (!STREAM_READY.get()) {
+                THREADS_TO_INIT.decrementAndGet();
+            }
+        }
         synchronized (STREAM_READY) {
             if (!STREAM_READY.get()) {
                 synchronized (THREADS_TO_INIT) {

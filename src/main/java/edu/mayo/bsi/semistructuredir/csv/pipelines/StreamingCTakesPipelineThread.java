@@ -31,7 +31,6 @@ public class StreamingCTakesPipelineThread extends Thread {
                 SimplePipeline.runPipeline(cr, builder.createAggregateDescription());
             } catch (Exception e) {
                 e.printStackTrace();
-                System.exit(0);
             }
         }
     }

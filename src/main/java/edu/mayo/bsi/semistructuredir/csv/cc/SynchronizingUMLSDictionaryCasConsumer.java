@@ -49,15 +49,14 @@ public class SynchronizingUMLSDictionaryCasConsumer extends JCasConsumer_ImplBas
                     "stream collection reader");
         }
         NLPStreamResponse resp = NLPStreamResponseCache.CACHE.remove(UUID.fromString(meta.getJobID()));
-        if (resp == null) {
-            throw new IllegalStateException("Job ID " + meta.getJobID() + " was scheduled but no response object was found!");
-        }
-        try {
-            //noinspection unchecked
-            resp.setResp(cuis, NLPStreamResponse.RESPONSE_STATES.COMPLETED_NORMALLY);
-            resp.runFinalizers();
-        } catch (Exception e) {
-            throw new AssertionError("Unmatching types between job cache and job result!", e);
+        if (resp != null) { // Assume we somehow did duplicate work if resp is actually null so just skip over without doing anything
+            try {
+                //noinspection unchecked
+                resp.setResp(cuis, NLPStreamResponse.RESPONSE_STATES.COMPLETED_NORMALLY);
+                resp.runFinalizers();
+            } catch (Exception e) {
+                throw new AssertionError("Unmatching types between job cache and job result!", e);
+            }
         }
     }
 }

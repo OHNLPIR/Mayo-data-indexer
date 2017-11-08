@@ -188,10 +188,11 @@ public final class SimplePipeline {
                     if (meta != null) {
                         NLPStreamResponse<?> resp
                                 = NLPStreamResponseCache.CACHE.remove(UUID.fromString(meta.getJobID()));
-                        resp.setResp(null, NLPStreamResponse.RESPONSE_STATES.COMPLETED_ERR);
+                        if (resp != null) {
+                            resp.setResp(null, NLPStreamResponse.RESPONSE_STATES.COMPLETED_ERR);
+                        }
                     }
                     e.printStackTrace();
-                    System.exit(1);
                 }
                 cas.reset();
             }
