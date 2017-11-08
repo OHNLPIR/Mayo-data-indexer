@@ -35,10 +35,8 @@ public class NLPStreamResponse<T> {
 
     public synchronized void runFinalizers() {
         synchronized (FINALIZERS_PROCESSED) {
-            while (!FINALIZERS_PROCESSED.get()) {
-                try {
-                    FINALIZERS_PROCESSED.wait(1000);
-                } catch (InterruptedException ignored) {}
+            if (!FINALIZERS_PROCESSED.get()) {
+                FINALIZERS_PROCESSED.set(true);
             }
             for (Consumer<T> consumer : FINALIZERS) {
                 consumer.accept(this.resp);
