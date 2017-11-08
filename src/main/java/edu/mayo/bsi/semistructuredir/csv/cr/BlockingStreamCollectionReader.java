@@ -31,7 +31,7 @@ import java.util.concurrent.atomic.AtomicInteger;
  */
 public class BlockingStreamCollectionReader extends JCasCollectionReader_ImplBase {
 
-    private static final BlockingDeque<Job> PROCESSING_QUEUE = new LinkedBlockingDeque<>(10000); // TODO this queue being too low can cause deadlock!
+    private static final BlockingDeque<Job> PROCESSING_QUEUE = new LinkedBlockingDeque<>(10000);
     private static final AtomicBoolean STREAM_OPEN = new AtomicBoolean(true);
     private static final AtomicBoolean STREAM_READY = new AtomicBoolean(false);
     private static final AtomicInteger THREADS_TO_INIT = new AtomicInteger(0); // Do not start processing until all threads complete
@@ -81,7 +81,7 @@ public class BlockingStreamCollectionReader extends JCasCollectionReader_ImplBas
                     e.printStackTrace();
                 }
             }
-            return !PROCESSING_QUEUE.isEmpty();
+            return CURRENT_WORK != null;
         }
     }
 
